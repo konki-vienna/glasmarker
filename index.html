@@ -447,7 +447,7 @@ function buildClip(textBB, depthMm, longArmMm, gapMm, clipOffsetX, clipOffsetY, 
         x0,y1,z1,  x1,y1,z1,  x1,y0,z1,  x0,y0,z1,
         x0,y1,z0,  x1,y1,z0,  x1,y0,z0,  x0,y0,z0,
       ],
-      tris: [0,1,2, 0,2,3, 5,4,7, 5,7,6, 4,0,3, 4,3,7, 1,5,6, 1,6,2, 4,5,1, 4,1,0, 3,2,6, 3,6,7]
+      tris: [0,2,1, 0,3,2, 4,5,6, 4,6,7, 4,3,0, 4,7,3, 1,6,5, 1,2,6, 0,1,5, 0,5,4, 2,3,7, 7,6,2]
     };
   }
 
@@ -479,8 +479,8 @@ function buildClip(textBB, depthMm, longArmMm, gapMm, clipOffsetX, clipOffsetY, 
       const f0 = b0 + 1,        f1 = b1 + 1;
       tris.push(0, b1, b0);     // back cap
       tris.push(1, f0, f1);     // front cap
-      tris.push(b0, f0, f1);    // wall
-      tris.push(b0, f1, b1);
+      tris.push(f1, f0, b0);    // wall
+      tris.push(b1, f1, b0);
     }
 
     return { verts, tris };
@@ -523,7 +523,8 @@ function buildClip(textBB, depthMm, longArmMm, gapMm, clipOffsetX, clipOffsetY, 
   geo.setIndex(new THREE.BufferAttribute(new Uint32Array(iAll), 1));
   geo.computeVertexNormals();
 
-  return new THREE.Mesh(geo, mat);
+  // Return the raw geometry (caller merges it with text geo → one single mesh)
+  return geo;
 }
 
 function buildText(text, depthMm, color, matType, heightMm, kerning) {
@@ -531,7 +532,7 @@ function buildText(text, depthMm, color, matType, heightMm, kerning) {
   // For extrusion, use a nominal depth proportional to expected em size
   const nominalDepth = depthMm / heightMm; // rough em-unit depth, rescaled later
   const spacing = kerning;  // kerning in em units (negative = tighter)
-  const geos = [];
+  const letterGeos = [];  // one entry per letter (may be multi-shape glyphs merged)
   let xCursor = 0;
 
   for (const char of text) {
@@ -544,6 +545,7 @@ function buildText(text, depthMm, color, matType, heightMm, kerning) {
       curveSegments: 1,
     };
 
+    const charGeos = [];
     for (const shapeData of data.shapes) {
       const shape = ptsToShape(shapeData.outer, shapeData.holes);
       try {
@@ -552,13 +554,19 @@ function buildText(text, depthMm, color, matType, heightMm, kerning) {
         const pos = geo.attributes.position.array;
         for (let i=0; i<pos.length; i+=3) pos[i] += xCursor;
         geo.attributes.position.needsUpdate = true;
-        geos.push(geo);
+        charGeos.push(geo);
       } catch(e) { console.warn('Extrude error for', char, e); }
+    }
+    if (charGeos.length > 0) {
+      // Merge shapes of the same letter (e.g. multi-contour glyphs) but keep letters separate
+      letterGeos.push({ char, geo: charGeos.length === 1 ? charGeos[0] : mergeGeos(charGeos) });
     }
     xCursor += data.advance + spacing;
   }
 
-  if (geos.length === 0) return null;
+  if (letterGeos.length === 0) return null;
+
+  const geos = letterGeos.map(l => l.geo);
 
   const merged = mergeGeos(geos);
   merged.computeBoundingBox();
@@ -578,6 +586,19 @@ function buildText(text, depthMm, color, matType, heightMm, kerning) {
   // We want final Z span = exactly depthMm, so use a separate Z scale.
   const zScale = depthMm / nominalDepth;   // maps em-depth → exact mm depth
 
+  // Scale ALL individual letter geometries (same transform as merged)
+  for (const { geo: lg } of letterGeos) {
+    const posArr = lg.attributes.position.array;
+    for (let i = 0; i < posArr.length; i += 3) {
+      posArr[i]   = (posArr[i]   - cx) * mmScale;
+      posArr[i+1] = (posArr[i+1] - cy) * mmScale;
+      posArr[i+2] = (posArr[i+2] - cz) * zScale;
+    }
+    posArr.needsUpdate = true;
+    lg.computeVertexNormals();
+  }
+
+  // Also scale the display-merged geometry
   const posArr = merged.attributes.position.array;
   for (let i = 0; i < posArr.length; i += 3) {
     posArr[i]   = (posArr[i]   - cx) * mmScale;   // X: em → mm
@@ -611,11 +632,6 @@ function buildText(text, depthMm, color, matType, heightMm, kerning) {
     });
   }
 
-  const mesh = new THREE.Mesh(merged, mat);
-  mesh.castShadow = true;
-  const group = new THREE.Group();
-  group.add(mesh);
-
   // Add clip if enabled (clipLenMm > 0)
   const clipLenMm    = parseFloat(document.getElementById('clip-len').value);
   const clipOffsetMm = parseFloat(document.getElementById('clip-offset').value);
@@ -638,14 +654,28 @@ function buildText(text, depthMm, color, matType, heightMm, kerning) {
     document.getElementById('val-flansch-len').textContent = textWidthMm.toFixed(1) + ' mm';
   }
   const flanschActual = flanschEnabled ? parseFloat(flanschSlider.value) : 0;
-  const clipMesh = buildClip(merged.boundingBox, depthMm, clipLenMm, clipOffsetMm, clipOffsetX, clipOffsetY, flanschActual, mat.clone());
-  group.add(clipMesh);
-  group.userData.clipGeo = clipMesh.geometry;
 
-  // Store text and clip separately for export (separate OBJ objects = correct boolean)
-  group.userData.geo     = merged;         // text-only (for dims display)
-  group.userData.geoClip = clipMesh.geometry;  // clip-only
-  group.userData.text    = text;
+  // Build clip geometry (separate object for export)
+  const clipGeo = buildClip(merged.boundingBox, depthMm, clipLenMm, clipOffsetMm, clipOffsetX, clipOffsetY, flanschActual);
+  clipGeo.computeVertexNormals();
+
+  // For DISPLAY: merge everything into one mesh (Three.js rendering)
+  const combinedGeo = mergeGeos([merged, clipGeo.clone()]);
+  combinedGeo.computeBoundingBox();
+  combinedGeo.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(combinedGeo, mat);
+  mesh.castShadow = true;
+  const group = new THREE.Group();
+  group.add(mesh);
+
+  // For EXPORT: keep each letter and clip as SEPARATE geometries.
+  // Exporting as separate OBJ objects lets the slicer treat them as individual
+  // closed volumes and apply Union — exactly like importing separate STL bodies.
+  group.userData.geo        = merged;        // full text merged (for bounding box / dims)
+  group.userData.letterGeos = letterGeos;    // [{char, geo}, ...] — one per letter
+  group.userData.clipGeo    = clipGeo;       // clip as its own object
+  group.userData.text       = text;
   return group;
 }
 
@@ -733,8 +763,23 @@ function weldGeo(geo, label) {
   const rawIdx = idxArr || Array.from({length: posAttr.count}, (_, i) => i);
   const faces = [];
   for (let i = 0; i < rawIdx.length; i += 3) {
-    const a = remap[rawIdx[i]], b = remap[rawIdx[i+1]], c = remap[rawIdx[i+2]];
-    if (a !== b && b !== c && a !== c) faces.push([a, b, c]);
+    let a = remap[rawIdx[i]], b = remap[rawIdx[i+1]], c = remap[rawIdx[i+2]];
+    if (a !== b && b !== c && a !== c) {
+      // Correct winding on flat cap faces: front cap (+Z) must have CCW normal pointing +Z,
+      // back cap (-Z) must have CCW normal pointing -Z.
+      const [ax,ay,az] = verts[a], [bx,by,bz] = verts[b], [cx2,cy2,cz] = verts[c];
+      const allFront = Math.abs(az-zMax)<0.001 && Math.abs(bz-zMax)<0.001 && Math.abs(cz-zMax)<0.001;
+      const allBack  = Math.abs(az-zMin)<0.001 && Math.abs(bz-zMin)<0.001 && Math.abs(cz-zMin)<0.001;
+      if (allFront || allBack) {
+        // Compute Z-component of face normal
+        const nz = (bx-ax)*(cy2-ay) - (by-ay)*(cx2-ax);
+        const wantPos = allFront;  // front cap: normal should be +Z
+        if ((wantPos && nz < 0) || (!wantPos && nz > 0)) {
+          [b, c] = [c, b];  // flip winding
+        }
+      }
+      faces.push([a, b, c]);
+    }
   }
   return { verts, faces, label };
 }
@@ -793,111 +838,46 @@ document.getElementById('download-btn').addEventListener('click', () => {
   const fontName = (document.getElementById('font-select').value||'font').replace(/\s+/g,'_').toLowerCase();
   const name = (textGroup.userData.text||'text').replace(/\s+/g,'_').toLowerCase() + '-' + fontName;
 
-  function objString(welded) {
-    const lines = ['# Generated by 3D Text Forge', '# Units: mm', ''];
-    lines.push(`o ${welded.label}`);
-    for (const [x, y, z] of welded.verts) lines.push(`v ${x} ${y} ${z}`);
-    lines.push('');
-    for (const [a, b, c] of welded.faces) lines.push(`f ${a+1} ${b+1} ${c+1}`);
-    return lines.join('\n');
-  }
-
-  // ── Minimal ZIP writer (no dependencies) ─────────────────────────────────
-  function makeZip(files) {
-    // files: [{name, content (string)}]
-    const enc = new TextEncoder();
-    const localHeaders = [];
-    const centralDir = [];
-    let offset = 0;
-
-    function crc32(buf) {
-      let c = 0xFFFFFFFF;
-      const t = new Uint32Array(256);
-      for (let i=0;i<256;i++){let x=i;for(let j=0;j<8;j++)x=x&1?(x>>>1)^0xEDB88320:(x>>>1);t[i]=x;}
-      for (let i=0;i<buf.length;i++) c=t[(c^buf[i])&0xFF]^(c>>>8);
-      return (c^0xFFFFFFFF)>>>0;
-    }
-
-    function u16(n){const b=new Uint8Array(2);new DataView(b.buffer).setUint16(0,n,true);return b;}
-    function u32(n){const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,n,true);return b;}
-
-    for (const {name, content} of files) {
-      const data = enc.encode(content);
-      const nameB = enc.encode(name);
-      const crc = crc32(data);
-      const lh = new Uint8Array([
-        0x50,0x4B,0x03,0x04, // local file header sig
-        20,0,                 // version needed
-        0,0,                  // flags
-        0,0,                  // compression: stored
-        0,0, 0,0,             // mod time, mod date
-        ...u32(crc),
-        ...u32(data.length),
-        ...u32(data.length),
-        ...u16(nameB.length),
-        0,0,                  // extra field length
-        ...nameB
-      ]);
-      localHeaders.push(lh);
-      // central dir entry
-      const cd = new Uint8Array([
-        0x50,0x4B,0x01,0x02,  // central dir sig
-        20,0,                  // version made by
-        20,0,                  // version needed
-        0,0,                   // flags
-        0,0,                   // compression: stored
-        0,0, 0,0,              // mod time, mod date
-        ...u32(crc),
-        ...u32(data.length),
-        ...u32(data.length),
-        ...u16(nameB.length),
-        0,0,                   // extra
-        0,0,                   // comment
-        0,0,                   // disk start
-        0,0,                   // int attrib
-        0,0,0,0,               // ext attrib
-        ...u32(offset),        // local header offset
-        ...nameB
-      ]);
-      centralDir.push({cd, data});
-      offset += lh.length + data.length;
-    }
-
-    const cdOffset = offset;
-    let cdSize = 0;
-    const parts = [...localHeaders.map((lh,i)=>[lh, centralDir[i].data]).flat(),
-                   ...centralDir.map(x=>x.cd)];
-    cdSize = centralDir.reduce((s,x)=>s+x.cd.length,0);
-
-    const eocd = new Uint8Array([
-      0x50,0x4B,0x05,0x06,    // end of central dir
-      0,0, 0,0,                // disk numbers
-      ...u16(files.length),
-      ...u16(files.length),
-      ...u32(cdSize),
-      ...u32(cdOffset),
-      0,0                      // comment length
-    ]);
-
-    const total = parts.reduce((s,p)=>s+p.length,0)+eocd.length;
-    const out = new Uint8Array(total);
-    let pos=0;
-    for (const p of parts){out.set(p,pos);pos+=p.length;}
-    out.set(eocd,pos);
-    return out;
-  }
-
-  const files = [
-    {name: `${name}-text.obj`, content: objString(weldGeo(textGroup.userData.geo, 'Text'))}
+  // Export each letter and the clip as SEPARATE 'o' objects.
+  // Slicer imports multiple objects → treats each as a closed volume → Union = correct.
+  // This is the same mechanism as importing separate STL files per body.
+  const lines = [
+    '# Generated by 3D Text Forge',
+    '# Units: mm',
+    '# Each letter and the clip are separate objects.',
+    '# Import into slicer as-is; overlapping volumes are printed as union (solid).',
+    ''
   ];
-  if (textGroup.userData.geoClip)
-    files.push({name: `${name}-clip.obj`, content: objString(weldGeo(textGroup.userData.geoClip, 'Clip'))});
 
-  const zipBytes = makeZip(files);
-  const blob = new Blob([zipBytes], {type: 'application/zip'});
+  // Count global vertex offset properly
+  let globalVOffset = 0;
+  function appendObjectWithOffset(geo, label) {
+    const w = weldGeo(geo, label);
+    lines.push(`o ${label}`);
+    for (const [x, y, z] of w.verts) lines.push(`v ${x} ${y} ${z}`);
+    lines.push('');
+    for (const [a, b, c] of w.faces) lines.push(`f ${globalVOffset+a+1} ${globalVOffset+b+1} ${globalVOffset+c+1}`);
+    lines.push('');
+    globalVOffset += w.verts.length;
+  }
+
+  const letterGeos = textGroup.userData.letterGeos || [];
+  const charCount = {};
+  for (const { char, geo } of letterGeos) {
+    charCount[char] = (charCount[char] || 0) + 1;
+    const safeName = (char === ' ' ? 'space' : char) + (charCount[char] > 1 ? charCount[char] : '');
+    appendObjectWithOffset(geo, `Letter_${safeName}`);
+  }
+
+  if (textGroup.userData.clipGeo) {
+    appendObjectWithOffset(textGroup.userData.clipGeo, 'Clip');
+  }
+
+  const content = lines.join('\n');
+  const blob = new Blob([content], {type: 'text/plain'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `3d-${name}.zip`;
+  a.href = url; a.download = `3d-${name}.obj`;
   document.body.appendChild(a); a.click();
   document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url), 1000);

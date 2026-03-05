@@ -433,7 +433,7 @@
   </head>
   <body>
     <div id="sidebar">
-      <div class="sidebar-logo"><span>GLASS</span>MARKER</div>
+      <div class="sidebar-logo"><span>3D</span>TEXT</div>
       <div class="sidebar-body">
         <div class="ctrl">
           <div class="ctrl-label">Text</div>
@@ -643,7 +643,9 @@
     </div>
     <div id="canvas-container">
       <div id="status" class="ready">BEREIT</div>
-      <div class="hint">DRAG zum Drehen · SCROLL zum Zoomen</div>
+      <div class="hint">
+        DRAG zum Drehen · SCROLL zum Zoomen · SHIFT+Klick für Mehrfachauswahl
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -110924,6 +110926,7 @@
           );
         } else {
           savedLetterOffsets = [];
+          selectedLetterIndices.clear();
         }
         lastRenderedText = text;
 
@@ -110972,18 +110975,21 @@
               setStatus("BEREIT", "ready");
               updateDims();
               // Rebuild letter selection buttons, restore previous selection
-              const prevSelected = selectedLetterIndex;
-              selectedLetterIndex = -1;
+              const prevSelected = new Set(selectedLetterIndices);
+              selectedLetterIndices.clear();
               document
                 .getElementById("move-controls")
                 .classList.remove("visible");
               buildLetterButtons();
-              if (
-                prevSelected >= 0 &&
-                prevSelected < (textGroup.userData.letterMeshes?.length ?? 0)
-              ) {
-                selectLetter(prevSelected);
-              }
+              // Re-highlight previously selected letters if still valid
+              const newMeshes = textGroup.userData.letterMeshes || [];
+              prevSelected.forEach((idx) => {
+                if (idx < newMeshes.length) {
+                  selectedLetterIndices.add(idx);
+                  applyHighlight(newMeshes[idx], true);
+                }
+              });
+              updateSelectionUI();
               // Auto-fit only on first render (or when RENDER button clicked explicitly)
               if (fitOnNextRender) {
                 fitCamera(textGroup.userData.geo);
@@ -111216,88 +111222,159 @@
       // ── Letter Selection & X-Offset System ───────────────────────────────────────
       const raycaster = new THREE.Raycaster();
       const mouse = new THREE.Vector2();
-      let selectedLetterIndex = -1;
+      let selectedLetterIndices = new Set(); // multi-select
       let mouseDownX = 0,
         mouseDownY = 0;
 
-      // Highlight / deselect materials
-      const HIGHLIGHT_COLOR = 0xff3c6e;
-      const SELECTED_EMISSIVE = 0x441100;
+      const HIGHLIGHT_COLOR = new THREE.Color(0xff3c6e);
 
       function getLetterMeshes() {
         return textGroup?.userData?.letterMeshes || [];
       }
 
-      function selectLetter(index) {
-        const meshes = getLetterMeshes();
+      function applyHighlight(mesh, selected) {
         const baseColor = new THREE.Color(
           document.getElementById("color").value,
         );
-        // Deselect previous
-        meshes.forEach((m) => {
-          m.material.color.set(baseColor);
-          if (m.material.emissive) {
-            m.material.emissive.set(0x000000);
-            m.material.emissiveIntensity = 0;
+        if (selected) {
+          mesh.material.color.set(HIGHLIGHT_COLOR);
+          if (mesh.material.emissive) {
+            mesh.material.emissive.set(new THREE.Color(0x330011));
+            mesh.material.emissiveIntensity = 1;
           }
-        });
-        document
-          .querySelectorAll(".letter-sel-btn")
-          .forEach((b) => b.classList.remove("active"));
+        } else {
+          mesh.material.color.set(baseColor);
+          if (mesh.material.emissive) {
+            mesh.material.emissive.set(0x000000);
+            mesh.material.emissiveIntensity = 0;
+          }
+        }
+      }
 
-        if (index < 0 || index >= meshes.length) {
-          selectedLetterIndex = -1;
+      function updateSelectionUI() {
+        const meshes = getLetterMeshes();
+        const count = selectedLetterIndices.size;
+
+        // Sync button highlights
+        document.querySelectorAll(".letter-sel-btn").forEach((b) => {
+          const i = parseInt(b.dataset.index);
+          b.classList.toggle("active", selectedLetterIndices.has(i));
+        });
+
+        if (count === 0) {
           document.getElementById("move-controls").classList.remove("visible");
           document.getElementById("selected-letter-name").textContent = "–";
           return;
         }
 
-        selectedLetterIndex = index;
-        const mesh = meshes[index];
-        // Highlight: tint color toward accent pink; use emissive if available
-        mesh.material.color.set(new THREE.Color(HIGHLIGHT_COLOR));
-        if (mesh.material.emissive) {
-          mesh.material.emissive.set(new THREE.Color(0x330011));
-          mesh.material.emissiveIntensity = 1;
-        }
-        const char = mesh.userData.char;
-        document.getElementById("selected-letter-name").textContent =
-          `"${char}" (#${index + 1})`;
-        document.getElementById("offset-val").textContent =
-          mesh.userData.xOffset.toFixed(1);
         document.getElementById("move-controls").classList.add("visible");
-        const btn = document.querySelector(
-          `.letter-sel-btn[data-index="${index}"]`,
-        );
-        if (btn) btn.classList.add("active");
-      }
 
-      function moveSelectedLetter(deltaMm) {
-        if (selectedLetterIndex < 0) return;
-        const meshes = getLetterMeshes();
-        const mesh = meshes[selectedLetterIndex];
-        if (!mesh) return;
-        mesh.position.x += deltaMm;
-        mesh.userData.xOffset += deltaMm;
-        document.getElementById("offset-val").textContent =
-          mesh.userData.xOffset.toFixed(1);
-        // Also shift the geometry in letterGeos so OBJ export is correct
-        const letterGeo =
-          textGroup.userData.letterGeos?.[selectedLetterIndex]?.geo;
-        if (letterGeo) {
-          const pos = letterGeo.attributes.position.array;
-          for (let i = 0; i < pos.length; i += 3) pos[i] += deltaMm;
-          letterGeo.attributes.position.needsUpdate = true;
+        if (count === 1) {
+          const idx = [...selectedLetterIndices][0];
+          const mesh = meshes[idx];
+          const char = mesh?.userData.char ?? "?";
+          document.getElementById("selected-letter-name").textContent =
+            `"${char}" (#${idx + 1})`;
+          document.getElementById("offset-val").textContent = (
+            mesh?.userData.xOffset ?? 0
+          ).toFixed(1);
+        } else {
+          const sorted = [...selectedLetterIndices].sort((a, b) => a - b);
+          const label = sorted
+            .map((i) =>
+              meshes[i]?.userData.char === " " ? "·" : meshes[i]?.userData.char,
+            )
+            .join("");
+          document.getElementById("selected-letter-name").textContent =
+            `${count}× "${label}"`;
+          // Show average offset
+          const avg =
+            sorted.reduce((s, i) => s + (meshes[i]?.userData.xOffset ?? 0), 0) /
+            count;
+          document.getElementById("offset-val").textContent =
+            avg.toFixed(1) + " Ø";
         }
       }
 
-      function resetSelectedOffset() {
-        if (selectedLetterIndex < 0) return;
+      // Toggle a single index into/out of the selection (shift = additive, otherwise exclusive)
+      function toggleLetterSelect(index, additive) {
         const meshes = getLetterMeshes();
-        const mesh = meshes[selectedLetterIndex];
-        if (!mesh) return;
-        const delta = -mesh.userData.xOffset;
-        moveSelectedLetter(delta);
+        if (index < 0 || index >= meshes.length) {
+          // Click on empty space → clear all
+          selectedLetterIndices.forEach((i) =>
+            applyHighlight(meshes[i], false),
+          );
+          selectedLetterIndices.clear();
+          updateSelectionUI();
+          return;
+        }
+
+        if (!additive) {
+          // Non-shift click: if already the only selection → deselect, else replace
+          if (
+            selectedLetterIndices.size === 1 &&
+            selectedLetterIndices.has(index)
+          ) {
+            applyHighlight(meshes[index], false);
+            selectedLetterIndices.clear();
+          } else {
+            selectedLetterIndices.forEach((i) =>
+              applyHighlight(meshes[i], false),
+            );
+            selectedLetterIndices.clear();
+            selectedLetterIndices.add(index);
+            applyHighlight(meshes[index], true);
+          }
+        } else {
+          // Shift click: toggle this index in/out of selection
+          if (selectedLetterIndices.has(index)) {
+            selectedLetterIndices.delete(index);
+            applyHighlight(meshes[index], false);
+          } else {
+            selectedLetterIndices.add(index);
+            applyHighlight(meshes[index], true);
+          }
+        }
+        updateSelectionUI();
+      }
+
+      function moveSelectedLetters(deltaMm) {
+        if (selectedLetterIndices.size === 0) return;
+        const meshes = getLetterMeshes();
+        selectedLetterIndices.forEach((idx) => {
+          const mesh = meshes[idx];
+          if (!mesh) return;
+          mesh.position.x += deltaMm;
+          mesh.userData.xOffset += deltaMm;
+          const letterGeo = textGroup.userData.letterGeos?.[idx]?.geo;
+          if (letterGeo) {
+            const pos = letterGeo.attributes.position.array;
+            for (let i = 0; i < pos.length; i += 3) pos[i] += deltaMm;
+            letterGeo.attributes.position.needsUpdate = true;
+          }
+        });
+        updateSelectionUI();
+      }
+
+      function resetSelectedOffsets() {
+        if (selectedLetterIndices.size === 0) return;
+        const meshes = getLetterMeshes();
+        selectedLetterIndices.forEach((idx) => {
+          const mesh = meshes[idx];
+          if (!mesh) return;
+          const delta = -mesh.userData.xOffset;
+          if (delta !== 0) {
+            mesh.position.x += delta;
+            mesh.userData.xOffset = 0;
+            const letterGeo = textGroup.userData.letterGeos?.[idx]?.geo;
+            if (letterGeo) {
+              const pos = letterGeo.attributes.position.array;
+              for (let i = 0; i < pos.length; i += 3) pos[i] += delta;
+              letterGeo.attributes.position.needsUpdate = true;
+            }
+          }
+        });
+        updateSelectionUI();
       }
 
       function buildLetterButtons() {
@@ -111313,14 +111390,10 @@
           const btn = document.createElement("button");
           btn.className = "letter-sel-btn";
           btn.dataset.index = i;
-          btn.title = `Buchstabe "${m.userData.char}" (${i + 1})`;
+          btn.title = `Buchstabe "${m.userData.char}" (${i + 1}) · Shift+Klick für Mehrfachauswahl`;
           btn.textContent = m.userData.char === " " ? "·" : m.userData.char;
-          btn.addEventListener("click", () => {
-            if (selectedLetterIndex === i) {
-              selectLetter(-1); // deselect on second click
-            } else {
-              selectLetter(i);
-            }
+          btn.addEventListener("click", (e) => {
+            toggleLetterSelect(i, e.shiftKey);
           });
           container.appendChild(btn);
         });
@@ -111333,7 +111406,6 @@
       });
 
       el.addEventListener("click", (e) => {
-        // Only treat as a click if mouse didn't move much (not a drag)
         if (
           Math.abs(e.clientX - mouseDownX) > 5 ||
           Math.abs(e.clientY - mouseDownY) > 5
@@ -111350,29 +111422,23 @@
         const intersects = raycaster.intersectObjects(meshes, false);
 
         if (intersects.length > 0) {
-          const hitMesh = intersects[0].object;
-          const idx = hitMesh.userData.letterIndex;
-          if (selectedLetterIndex === idx) {
-            selectLetter(-1);
-          } else {
-            selectLetter(idx);
-          }
+          const idx = intersects[0].object.userData.letterIndex;
+          toggleLetterSelect(idx, e.shiftKey);
         } else {
-          selectLetter(-1);
+          toggleLetterSelect(-1, false);
         }
       });
 
       // Move buttons
       document.querySelectorAll(".btn-move").forEach((btn) => {
         btn.addEventListener("click", () => {
-          const delta = parseFloat(btn.dataset.delta);
-          moveSelectedLetter(delta);
+          moveSelectedLetters(parseFloat(btn.dataset.delta));
         });
       });
 
       document
         .getElementById("reset-offset-btn")
-        .addEventListener("click", resetSelectedOffset);
+        .addEventListener("click", resetSelectedOffsets);
 
       // Hook into renderText to rebuild letter buttons afterward
       // (handled directly in renderText after scene.add(textGroup))

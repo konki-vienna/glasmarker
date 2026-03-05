@@ -433,7 +433,7 @@
   </head>
   <body>
     <div id="sidebar">
-      <div class="sidebar-logo"><span>3D</span>TEXT</div>
+      <div class="sidebar-logo"><span>GLASS</span>MARKER</div>
       <div class="sidebar-body">
         <div class="ctrl">
           <div class="ctrl-label">Text</div>
@@ -610,7 +610,9 @@
             <button class="btn-move" data-delta="0.1">+0.1</button>
             <button class="btn-move" data-delta="1">+1</button>
           </div>
-          <div id="offset-display">Versatz: <span id="offset-val">0.0</span> mm</div>
+          <div id="offset-display">
+            Versatz: <span id="offset-val">0.0</span> mm
+          </div>
           <button id="reset-offset-btn">↺ ZURÜCKSETZEN</button>
         </div>
 
@@ -110252,7 +110254,14 @@
       perspCamera.position.set(0, 25, 120);
       perspCamera.lookAt(0, 0, 0);
 
-      const orthoCamera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 5000);
+      const orthoCamera = new THREE.OrthographicCamera(
+        -100,
+        100,
+        100,
+        -100,
+        0.1,
+        5000,
+      );
       orthoCamera.position.set(0, 25, 120);
       orthoCamera.lookAt(0, 0, 0);
 
@@ -110328,9 +110337,9 @@
           const fitW = (width / 2) * pad;
           const halfW = Math.max(fitW, fitH * aspect);
           const halfH = halfW / aspect;
-          orthoCamera.left   = -halfW;
-          orthoCamera.right  =  halfW;
-          orthoCamera.top    =  halfH;
+          orthoCamera.left = -halfW;
+          orthoCamera.right = halfW;
+          orthoCamera.top = halfH;
           orthoCamera.bottom = -halfH;
           orthoCamera.updateProjectionMatrix();
           sph.phi = Math.PI / 2;
@@ -110433,10 +110442,15 @@
           const width2 = bb.max.x - bb.min.x;
           const height2 = bb.max.y - bb.min.y;
           const pad = 1.15;
-          const halfW = Math.max((width2 / 2) * pad, (height2 / 2) * pad * aspect);
+          const halfW = Math.max(
+            (width2 / 2) * pad,
+            (height2 / 2) * pad * aspect,
+          );
           const halfH = halfW / aspect;
-          orthoCamera.left = -halfW; orthoCamera.right = halfW;
-          orthoCamera.top = halfH; orthoCamera.bottom = -halfH;
+          orthoCamera.left = -halfW;
+          orthoCamera.right = halfW;
+          orthoCamera.top = halfH;
+          orthoCamera.bottom = -halfH;
           orthoCamera.updateProjectionMatrix();
         }
       }
@@ -110900,8 +110914,14 @@
 
         // Save current offsets before destroying the group (unless reset requested
         // or text changed — different letter count makes saved offsets meaningless)
-        if (!resetOffsets && text === lastRenderedText && textGroup?.userData?.letterMeshes) {
-          savedLetterOffsets = textGroup.userData.letterMeshes.map(m => m.userData.xOffset);
+        if (
+          !resetOffsets &&
+          text === lastRenderedText &&
+          textGroup?.userData?.letterMeshes
+        ) {
+          savedLetterOffsets = textGroup.userData.letterMeshes.map(
+            (m) => m.userData.xOffset,
+          );
         } else {
           savedLetterOffsets = [];
         }
@@ -110954,9 +110974,14 @@
               // Rebuild letter selection buttons, restore previous selection
               const prevSelected = selectedLetterIndex;
               selectedLetterIndex = -1;
-              document.getElementById("move-controls").classList.remove("visible");
+              document
+                .getElementById("move-controls")
+                .classList.remove("visible");
               buildLetterButtons();
-              if (prevSelected >= 0 && prevSelected < (textGroup.userData.letterMeshes?.length ?? 0)) {
+              if (
+                prevSelected >= 0 &&
+                prevSelected < (textGroup.userData.letterMeshes?.length ?? 0)
+              ) {
                 selectLetter(prevSelected);
               }
               // Auto-fit only on first render (or when RENDER button clicked explicitly)
@@ -111055,8 +111080,15 @@
       }
       sliderSetup("height-mm", "val-height", (v) => v + " mm");
       sliderSetup("depth-mm", "val-depth", (v) => v + " mm");
-      sliderSetup("kerning", "val-kerning", (v) => (v >= 0 ? "+" : "") + v, false);
-      document.getElementById("kerning").addEventListener("input", () => renderText(true));
+      sliderSetup(
+        "kerning",
+        "val-kerning",
+        (v) => (v >= 0 ? "+" : "") + v,
+        false,
+      );
+      document
+        .getElementById("kerning")
+        .addEventListener("input", () => renderText(true));
       sliderSetup("clip-len", "val-clip-len", (v) => v + " mm");
       sliderSetup("clip-offset", "val-clip-offset", (v) => v + " mm");
       sliderSetup(
@@ -111185,7 +111217,8 @@
       const raycaster = new THREE.Raycaster();
       const mouse = new THREE.Vector2();
       let selectedLetterIndex = -1;
-      let mouseDownX = 0, mouseDownY = 0;
+      let mouseDownX = 0,
+        mouseDownY = 0;
 
       // Highlight / deselect materials
       const HIGHLIGHT_COLOR = 0xff3c6e;
@@ -111197,7 +111230,9 @@
 
       function selectLetter(index) {
         const meshes = getLetterMeshes();
-        const baseColor = new THREE.Color(document.getElementById("color").value);
+        const baseColor = new THREE.Color(
+          document.getElementById("color").value,
+        );
         // Deselect previous
         meshes.forEach((m) => {
           m.material.color.set(baseColor);
@@ -111206,7 +111241,9 @@
             m.material.emissiveIntensity = 0;
           }
         });
-        document.querySelectorAll(".letter-sel-btn").forEach(b => b.classList.remove("active"));
+        document
+          .querySelectorAll(".letter-sel-btn")
+          .forEach((b) => b.classList.remove("active"));
 
         if (index < 0 || index >= meshes.length) {
           selectedLetterIndex = -1;
@@ -111224,10 +111261,14 @@
           mesh.material.emissiveIntensity = 1;
         }
         const char = mesh.userData.char;
-        document.getElementById("selected-letter-name").textContent = `"${char}" (#${index + 1})`;
-        document.getElementById("offset-val").textContent = mesh.userData.xOffset.toFixed(1);
+        document.getElementById("selected-letter-name").textContent =
+          `"${char}" (#${index + 1})`;
+        document.getElementById("offset-val").textContent =
+          mesh.userData.xOffset.toFixed(1);
         document.getElementById("move-controls").classList.add("visible");
-        const btn = document.querySelector(`.letter-sel-btn[data-index="${index}"]`);
+        const btn = document.querySelector(
+          `.letter-sel-btn[data-index="${index}"]`,
+        );
         if (btn) btn.classList.add("active");
       }
 
@@ -111238,9 +111279,11 @@
         if (!mesh) return;
         mesh.position.x += deltaMm;
         mesh.userData.xOffset += deltaMm;
-        document.getElementById("offset-val").textContent = mesh.userData.xOffset.toFixed(1);
+        document.getElementById("offset-val").textContent =
+          mesh.userData.xOffset.toFixed(1);
         // Also shift the geometry in letterGeos so OBJ export is correct
-        const letterGeo = textGroup.userData.letterGeos?.[selectedLetterIndex]?.geo;
+        const letterGeo =
+          textGroup.userData.letterGeos?.[selectedLetterIndex]?.geo;
         if (letterGeo) {
           const pos = letterGeo.attributes.position.array;
           for (let i = 0; i < pos.length; i += 3) pos[i] += deltaMm;
@@ -111291,7 +111334,11 @@
 
       el.addEventListener("click", (e) => {
         // Only treat as a click if mouse didn't move much (not a drag)
-        if (Math.abs(e.clientX - mouseDownX) > 5 || Math.abs(e.clientY - mouseDownY) > 5) return;
+        if (
+          Math.abs(e.clientX - mouseDownX) > 5 ||
+          Math.abs(e.clientY - mouseDownY) > 5
+        )
+          return;
         if (!textGroup) return;
 
         const rect = el.getBoundingClientRect();
@@ -111316,14 +111363,16 @@
       });
 
       // Move buttons
-      document.querySelectorAll(".btn-move").forEach(btn => {
+      document.querySelectorAll(".btn-move").forEach((btn) => {
         btn.addEventListener("click", () => {
           const delta = parseFloat(btn.dataset.delta);
           moveSelectedLetter(delta);
         });
       });
 
-      document.getElementById("reset-offset-btn").addEventListener("click", resetSelectedOffset);
+      document
+        .getElementById("reset-offset-btn")
+        .addEventListener("click", resetSelectedOffset);
 
       // Hook into renderText to rebuild letter buttons afterward
       // (handled directly in renderText after scene.add(textGroup))

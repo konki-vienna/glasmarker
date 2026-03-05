@@ -433,7 +433,7 @@
   </head>
   <body>
     <div id="sidebar">
-      <div class="sidebar-logo"><span>3D</span>TEXT</div>
+      <div class="sidebar-logo"><span>GLASS</span>MARKER</div>
       <div class="sidebar-body">
         <div class="ctrl">
           <div class="ctrl-label">Text</div>
@@ -604,15 +604,8 @@
           <div class="move-label">
             X-Position: <span id="selected-letter-name">–</span>
           </div>
-          <div id="move-btn-row">
-            <button class="btn-move" data-delta="-1">−1</button>
-            <button class="btn-move" data-delta="-0.1">−0.1</button>
-            <button class="btn-move" data-delta="0.1">+0.1</button>
-            <button class="btn-move" data-delta="1">+1</button>
-          </div>
-          <div id="offset-display">
-            Versatz: <span id="offset-val">0.0</span> mm
-          </div>
+          <div id="move-btn-row"></div>
+          <div id="offset-display">Versatz: <span id="offset-val">0.0</span> mm</div>
           <button id="reset-offset-btn">↺ ZURÜCKSETZEN</button>
         </div>
 
@@ -643,9 +636,8 @@
     </div>
     <div id="canvas-container">
       <div id="status" class="ready">BEREIT</div>
-      <div class="hint">
-        DRAG zum Drehen · SCROLL zum Zoomen · SHIFT+Klick für Mehrfachauswahl
-      </div>
+      <div class="hint" style="bottom: 28px;">DRAG zum Drehen · SHIFT+DRAG zum Verschieben · SCROLL zum Zoomen · SHIFT+Klick für Mehrfachauswahl</div>
+      <div class="hint">Zum Bewegen markierter Buchstaben die Pfeiltasten der Tastatur verwenden</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -110256,14 +110248,7 @@
       perspCamera.position.set(0, 25, 120);
       perspCamera.lookAt(0, 0, 0);
 
-      const orthoCamera = new THREE.OrthographicCamera(
-        -100,
-        100,
-        100,
-        -100,
-        0.1,
-        5000,
-      );
+      const orthoCamera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 5000);
       orthoCamera.position.set(0, 25, 120);
       orthoCamera.lookAt(0, 0, 0);
 
@@ -110312,8 +110297,11 @@
         sph.r = Math.max(fitH, fitW) * 1.3 + depth2;
         sph.phi = Math.PI / 2;
         sph.theta = 0;
+        panX = 0;
         updateCam();
       }
+
+      let panX = 0; // horizontal camera pan offset in world units
 
       function setFrontView() {
         if (!textGroup || !textGroup.userData.geo) return;
@@ -110331,6 +110319,7 @@
         camera = isOrtho ? orthoCamera : perspCamera;
 
         const btn = document.getElementById("front-btn");
+        panX = 0;
 
         if (isOrtho) {
           // Orthographic: set frustum to fit the text exactly
@@ -110339,9 +110328,9 @@
           const fitW = (width / 2) * pad;
           const halfW = Math.max(fitW, fitH * aspect);
           const halfH = halfW / aspect;
-          orthoCamera.left = -halfW;
-          orthoCamera.right = halfW;
-          orthoCamera.top = halfH;
+          orthoCamera.left   = -halfW;
+          orthoCamera.right  =  halfW;
+          orthoCamera.top    =  halfH;
           orthoCamera.bottom = -halfH;
           orthoCamera.updateProjectionMatrix();
           sph.phi = Math.PI / 2;
@@ -110362,16 +110351,26 @@
         }
       }
 
+
       const updateCam = () => {
-        const pos = [
-          sph.r * Math.sin(sph.phi) * Math.sin(sph.theta),
-          sph.r * Math.cos(sph.phi),
-          sph.r * Math.sin(sph.phi) * Math.cos(sph.theta),
-        ];
-        perspCamera.position.set(...pos);
-        perspCamera.lookAt(0, 0, 0);
-        orthoCamera.position.set(...pos);
-        orthoCamera.lookAt(0, 0, 0);
+        const ox = sph.r * Math.sin(sph.phi) * Math.sin(sph.theta);
+        const oy = sph.r * Math.cos(sph.phi);
+        const oz = sph.r * Math.sin(sph.phi) * Math.cos(sph.theta);
+
+        // Right vector (perpendicular to view dir and world-up, in XZ plane)
+        // When theta=0 (front view) right = +X, which is what we want.
+        const rightX = Math.cos(sph.theta);
+        const rightZ = -Math.sin(sph.theta);
+
+        const camX = ox + rightX * panX;
+        const camZ = oz + rightZ * panX;
+        const tgtX = rightX * panX;
+        const tgtZ = rightZ * panX;
+
+        perspCamera.position.set(camX, oy, camZ);
+        perspCamera.lookAt(tgtX, 0, tgtZ);
+        orthoCamera.position.set(camX, oy, camZ);
+        orthoCamera.lookAt(tgtX, 0, tgtZ);
       };
       updateCam();
       const el = renderer.domElement;
@@ -110383,11 +110382,20 @@
       window.addEventListener("mouseup", () => (drag = false));
       window.addEventListener("mousemove", (e) => {
         if (!drag) return;
-        sph.theta -= (e.clientX - px) * 0.004;
-        sph.phi = Math.max(
-          0.15,
-          Math.min(Math.PI - 0.15, sph.phi + (e.clientY - py) * 0.004),
-        );
+        const dx = e.clientX - px;
+        const dy = e.clientY - py;
+        if (e.shiftKey) {
+          // Shift+drag: pan horizontally
+          // Scale pan speed with distance (perspective) or ortho frustum width
+          const panSpeed = isOrtho
+            ? (orthoCamera.right - orthoCamera.left) / (el.clientWidth || 800)
+            : sph.r * 0.002;
+          panX -= dx * panSpeed;
+        } else {
+          // Normal drag: orbit
+          sph.theta -= dx * 0.004;
+          sph.phi = Math.max(0.15, Math.min(Math.PI - 0.15, sph.phi + dy * 0.004));
+        }
         px = e.clientX;
         py = e.clientY;
         updateCam();
@@ -110396,8 +110404,19 @@
         "wheel",
         (e) => {
           e.preventDefault();
-          sph.r = Math.max(10, Math.min(2000, sph.r + e.deltaY * 0.5));
-          updateCam();
+          if (isOrtho) {
+            // In ortho mode, zoom by scaling the frustum boundaries
+            const zoomFactor = 1 + e.deltaY * 0.001;
+            const scale = Math.max(0.1, Math.min(50, zoomFactor));
+            orthoCamera.left   *= scale;
+            orthoCamera.right  *= scale;
+            orthoCamera.top    *= scale;
+            orthoCamera.bottom *= scale;
+            orthoCamera.updateProjectionMatrix();
+          } else {
+            sph.r = Math.max(10, Math.min(2000, sph.r + e.deltaY * 0.5));
+            updateCam();
+          }
         },
         { passive: false },
       );
@@ -110444,15 +110463,10 @@
           const width2 = bb.max.x - bb.min.x;
           const height2 = bb.max.y - bb.min.y;
           const pad = 1.15;
-          const halfW = Math.max(
-            (width2 / 2) * pad,
-            (height2 / 2) * pad * aspect,
-          );
+          const halfW = Math.max((width2 / 2) * pad, (height2 / 2) * pad * aspect);
           const halfH = halfW / aspect;
-          orthoCamera.left = -halfW;
-          orthoCamera.right = halfW;
-          orthoCamera.top = halfH;
-          orthoCamera.bottom = -halfH;
+          orthoCamera.left = -halfW; orthoCamera.right = halfW;
+          orthoCamera.top = halfH; orthoCamera.bottom = -halfH;
           orthoCamera.updateProjectionMatrix();
         }
       }
@@ -110916,14 +110930,8 @@
 
         // Save current offsets before destroying the group (unless reset requested
         // or text changed — different letter count makes saved offsets meaningless)
-        if (
-          !resetOffsets &&
-          text === lastRenderedText &&
-          textGroup?.userData?.letterMeshes
-        ) {
-          savedLetterOffsets = textGroup.userData.letterMeshes.map(
-            (m) => m.userData.xOffset,
-          );
+        if (!resetOffsets && text === lastRenderedText && textGroup?.userData?.letterMeshes) {
+          savedLetterOffsets = textGroup.userData.letterMeshes.map(m => m.userData.xOffset);
         } else {
           savedLetterOffsets = [];
           selectedLetterIndices.clear();
@@ -110977,13 +110985,11 @@
               // Rebuild letter selection buttons, restore previous selection
               const prevSelected = new Set(selectedLetterIndices);
               selectedLetterIndices.clear();
-              document
-                .getElementById("move-controls")
-                .classList.remove("visible");
+              document.getElementById("move-controls").classList.remove("visible");
               buildLetterButtons();
               // Re-highlight previously selected letters if still valid
               const newMeshes = textGroup.userData.letterMeshes || [];
-              prevSelected.forEach((idx) => {
+              prevSelected.forEach(idx => {
                 if (idx < newMeshes.length) {
                   selectedLetterIndices.add(idx);
                   applyHighlight(newMeshes[idx], true);
@@ -111086,15 +111092,8 @@
       }
       sliderSetup("height-mm", "val-height", (v) => v + " mm");
       sliderSetup("depth-mm", "val-depth", (v) => v + " mm");
-      sliderSetup(
-        "kerning",
-        "val-kerning",
-        (v) => (v >= 0 ? "+" : "") + v,
-        false,
-      );
-      document
-        .getElementById("kerning")
-        .addEventListener("input", () => renderText(true));
+      sliderSetup("kerning", "val-kerning", (v) => (v >= 0 ? "+" : "") + v, false);
+      document.getElementById("kerning").addEventListener("input", () => renderText(true));
       sliderSetup("clip-len", "val-clip-len", (v) => v + " mm");
       sliderSetup("clip-offset", "val-clip-offset", (v) => v + " mm");
       sliderSetup(
@@ -111223,8 +111222,7 @@
       const raycaster = new THREE.Raycaster();
       const mouse = new THREE.Vector2();
       let selectedLetterIndices = new Set(); // multi-select
-      let mouseDownX = 0,
-        mouseDownY = 0;
+      let mouseDownX = 0, mouseDownY = 0;
 
       const HIGHLIGHT_COLOR = new THREE.Color(0xff3c6e);
 
@@ -111233,9 +111231,7 @@
       }
 
       function applyHighlight(mesh, selected) {
-        const baseColor = new THREE.Color(
-          document.getElementById("color").value,
-        );
+        const baseColor = new THREE.Color(document.getElementById("color").value);
         if (selected) {
           mesh.material.color.set(HIGHLIGHT_COLOR);
           if (mesh.material.emissive) {
@@ -111256,7 +111252,7 @@
         const count = selectedLetterIndices.size;
 
         // Sync button highlights
-        document.querySelectorAll(".letter-sel-btn").forEach((b) => {
+        document.querySelectorAll(".letter-sel-btn").forEach(b => {
           const i = parseInt(b.dataset.index);
           b.classList.toggle("active", selectedLetterIndices.has(i));
         });
@@ -111273,26 +111269,15 @@
           const idx = [...selectedLetterIndices][0];
           const mesh = meshes[idx];
           const char = mesh?.userData.char ?? "?";
-          document.getElementById("selected-letter-name").textContent =
-            `"${char}" (#${idx + 1})`;
-          document.getElementById("offset-val").textContent = (
-            mesh?.userData.xOffset ?? 0
-          ).toFixed(1);
+          document.getElementById("selected-letter-name").textContent = `"${char}" (#${idx + 1})`;
+          document.getElementById("offset-val").textContent = (mesh?.userData.xOffset ?? 0).toFixed(1);
         } else {
           const sorted = [...selectedLetterIndices].sort((a, b) => a - b);
-          const label = sorted
-            .map((i) =>
-              meshes[i]?.userData.char === " " ? "·" : meshes[i]?.userData.char,
-            )
-            .join("");
-          document.getElementById("selected-letter-name").textContent =
-            `${count}× "${label}"`;
+          const label = sorted.map(i => meshes[i]?.userData.char === " " ? "·" : meshes[i]?.userData.char).join("");
+          document.getElementById("selected-letter-name").textContent = `${count}× "${label}"`;
           // Show average offset
-          const avg =
-            sorted.reduce((s, i) => s + (meshes[i]?.userData.xOffset ?? 0), 0) /
-            count;
-          document.getElementById("offset-val").textContent =
-            avg.toFixed(1) + " Ø";
+          const avg = sorted.reduce((s, i) => s + (meshes[i]?.userData.xOffset ?? 0), 0) / count;
+          document.getElementById("offset-val").textContent = avg.toFixed(1) + " Ø";
         }
       }
 
@@ -111301,9 +111286,7 @@
         const meshes = getLetterMeshes();
         if (index < 0 || index >= meshes.length) {
           // Click on empty space → clear all
-          selectedLetterIndices.forEach((i) =>
-            applyHighlight(meshes[i], false),
-          );
+          selectedLetterIndices.forEach(i => applyHighlight(meshes[i], false));
           selectedLetterIndices.clear();
           updateSelectionUI();
           return;
@@ -111311,16 +111294,11 @@
 
         if (!additive) {
           // Non-shift click: if already the only selection → deselect, else replace
-          if (
-            selectedLetterIndices.size === 1 &&
-            selectedLetterIndices.has(index)
-          ) {
+          if (selectedLetterIndices.size === 1 && selectedLetterIndices.has(index)) {
             applyHighlight(meshes[index], false);
             selectedLetterIndices.clear();
           } else {
-            selectedLetterIndices.forEach((i) =>
-              applyHighlight(meshes[i], false),
-            );
+            selectedLetterIndices.forEach(i => applyHighlight(meshes[i], false));
             selectedLetterIndices.clear();
             selectedLetterIndices.add(index);
             applyHighlight(meshes[index], true);
@@ -111341,7 +111319,7 @@
       function moveSelectedLetters(deltaMm) {
         if (selectedLetterIndices.size === 0) return;
         const meshes = getLetterMeshes();
-        selectedLetterIndices.forEach((idx) => {
+        selectedLetterIndices.forEach(idx => {
           const mesh = meshes[idx];
           if (!mesh) return;
           mesh.position.x += deltaMm;
@@ -111359,7 +111337,7 @@
       function resetSelectedOffsets() {
         if (selectedLetterIndices.size === 0) return;
         const meshes = getLetterMeshes();
-        selectedLetterIndices.forEach((idx) => {
+        selectedLetterIndices.forEach(idx => {
           const mesh = meshes[idx];
           if (!mesh) return;
           const delta = -mesh.userData.xOffset;
@@ -111406,11 +111384,7 @@
       });
 
       el.addEventListener("click", (e) => {
-        if (
-          Math.abs(e.clientX - mouseDownX) > 5 ||
-          Math.abs(e.clientY - mouseDownY) > 5
-        )
-          return;
+        if (Math.abs(e.clientX - mouseDownX) > 5 || Math.abs(e.clientY - mouseDownY) > 5) return;
         if (!textGroup) return;
 
         const rect = el.getBoundingClientRect();
@@ -111429,16 +111403,20 @@
         }
       });
 
-      // Move buttons
-      document.querySelectorAll(".btn-move").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          moveSelectedLetters(parseFloat(btn.dataset.delta));
-        });
-      });
+      document.getElementById("reset-offset-btn").addEventListener("click", resetSelectedOffsets);
 
-      document
-        .getElementById("reset-offset-btn")
-        .addEventListener("click", resetSelectedOffsets);
+      // Arrow key support: Left/Right moves selected letters
+      // Plain arrow = ±0.1 mm, Shift+arrow = ±1 mm
+      window.addEventListener("keydown", (e) => {
+        if (selectedLetterIndices.size === 0) return;
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        // Don't hijack arrow keys when typing in the text input
+        if (document.activeElement === document.getElementById("text-input")) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 1 : 0.1;
+        const delta = e.key === "ArrowLeft" ? -step : step;
+        moveSelectedLetters(delta);
+      });
 
       // Hook into renderText to rebuild letter buttons afterward
       // (handled directly in renderText after scene.add(textGroup))

@@ -110884,7 +110884,11 @@
           `<span>${w}</span> × <span>${h}</span> × <span>${d}</span> mm`;
       }
 
-      function renderText() {
+      // Persist letter X-offsets across re-renders (keyed by letter index)
+      let savedLetterOffsets = [];
+      let lastRenderedText = "";
+
+      function renderText(resetOffsets = false) {
         const text = document.getElementById("text-input").value || "FORGE";
         const color = document.getElementById("color").value;
         const matType = document.getElementById("material").value;
@@ -110893,6 +110897,15 @@
         const kerning =
           parseFloat(document.getElementById("kerning").value) / 1000;
         // clip params are read inside buildText via DOM
+
+        // Save current offsets before destroying the group (unless reset requested
+        // or text changed — different letter count makes saved offsets meaningless)
+        if (!resetOffsets && text === lastRenderedText && textGroup?.userData?.letterMeshes) {
+          savedLetterOffsets = textGroup.userData.letterMeshes.map(m => m.userData.xOffset);
+        } else {
+          savedLetterOffsets = [];
+        }
+        lastRenderedText = text;
 
         setStatus("RENDERING…", "loading");
         document.getElementById("download-btn").disabled = true;
@@ -110916,14 +110929,36 @@
               kerning,
             );
             if (textGroup) {
+              // Re-apply saved offsets after build
+              if (savedLetterOffsets.length > 0) {
+                const meshes = textGroup.userData.letterMeshes || [];
+                meshes.forEach((mesh, i) => {
+                  const offset = savedLetterOffsets[i] ?? 0;
+                  if (offset !== 0) {
+                    mesh.position.x += offset;
+                    mesh.userData.xOffset = offset;
+                    const lg = textGroup.userData.letterGeos?.[i]?.geo;
+                    if (lg) {
+                      const pos = lg.attributes.position.array;
+                      for (let j = 0; j < pos.length; j += 3) pos[j] += offset;
+                      lg.attributes.position.needsUpdate = true;
+                    }
+                  }
+                });
+              }
+
               scene.add(textGroup);
               document.getElementById("download-btn").disabled = false;
               setStatus("BEREIT", "ready");
               updateDims();
-              // Rebuild letter selection buttons
+              // Rebuild letter selection buttons, restore previous selection
+              const prevSelected = selectedLetterIndex;
               selectedLetterIndex = -1;
               document.getElementById("move-controls").classList.remove("visible");
               buildLetterButtons();
+              if (prevSelected >= 0 && prevSelected < (textGroup.userData.letterMeshes?.length ?? 0)) {
+                selectLetter(prevSelected);
+              }
               // Auto-fit only on first render (or when RENDER button clicked explicitly)
               if (fitOnNextRender) {
                 fitCamera(textGroup.userData.geo);
@@ -111020,7 +111055,8 @@
       }
       sliderSetup("height-mm", "val-height", (v) => v + " mm");
       sliderSetup("depth-mm", "val-depth", (v) => v + " mm");
-      sliderSetup("kerning", "val-kerning", (v) => (v >= 0 ? "+" : "") + v);
+      sliderSetup("kerning", "val-kerning", (v) => (v >= 0 ? "+" : "") + v, false);
+      document.getElementById("kerning").addEventListener("input", () => renderText(true));
       sliderSetup("clip-len", "val-clip-len", (v) => v + " mm");
       sliderSetup("clip-offset", "val-clip-offset", (v) => v + " mm");
       sliderSetup(
@@ -111061,7 +111097,7 @@
 
       document.getElementById("font-select").addEventListener("change", (e) => {
         FONT_DATA = ALL_FONTS[e.target.value];
-        renderText();
+        renderText(true);
       });
       document.getElementById("color").addEventListener("input", renderText);
       document
@@ -111071,7 +111107,7 @@
         fitOnNextRender = true;
         // Reset flansch to auto (text width) on explicit render
         delete document.getElementById("flansch-len").dataset.userSet;
-        renderText();
+        renderText(true);
       });
       document
         .getElementById("front-btn")
@@ -111142,7 +111178,7 @@
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       });
       document.getElementById("text-input").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") renderText();
+        if (e.key === "Enter") renderText(true);
       });
 
       // ── Letter Selection & X-Offset System ───────────────────────────────────────

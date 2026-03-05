@@ -256,6 +256,127 @@
         cursor: not-allowed;
       }
 
+      /* ── Letter Selection Panel ── */
+      #letter-panel {
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+      }
+      #letter-panel.visible {
+        display: flex;
+      }
+      .letter-panel-label {
+        font-size: 9px;
+        color: var(--muted);
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+      #letter-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .letter-sel-btn {
+        font-family: "Space Mono", monospace;
+        font-size: 11px;
+        font-weight: 700;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        cursor: pointer;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .letter-sel-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .letter-sel-btn.active {
+        background: var(--accent);
+        color: #0a0a0f;
+        border-color: var(--accent);
+        box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);
+      }
+      #move-controls {
+        display: none;
+        flex-direction: column;
+        gap: 5px;
+      }
+      #move-controls.visible {
+        display: flex;
+      }
+      .move-label {
+        font-size: 9px;
+        color: var(--muted);
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        display: flex;
+        justify-content: space-between;
+      }
+      #selected-letter-name {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      #move-btn-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        gap: 4px;
+      }
+      .btn-move {
+        font-family: "Space Mono", monospace;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        padding: 7px 4px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        cursor: pointer;
+        transition: all 0.15s;
+        text-align: center;
+      }
+      .btn-move:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .btn-move:active {
+        background: var(--accent);
+        color: #0a0a0f;
+      }
+      #offset-display {
+        font-size: 9px;
+        color: var(--muted);
+        letter-spacing: 1px;
+        text-align: center;
+      }
+      #offset-display span {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      #reset-offset-btn {
+        font-family: "Space Mono", monospace;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        padding: 5px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        transition: all 0.15s;
+        width: 100%;
+        text-align: center;
+      }
+      #reset-offset-btn:hover {
+        border-color: var(--accent2);
+        color: var(--accent2);
+      }
+
       /* ── Canvas ── */
       #canvas-container {
         flex: 1;
@@ -339,6 +460,8 @@
             <option value="Vegan Style">Vegan Style</option>
           </select>
         </div>
+
+        <button class="btn btn-render" id="render-btn">▶ UPDATE</button>
 
         <div class="divider"></div>
 
@@ -472,6 +595,27 @@
 
         <div class="divider"></div>
 
+        <!-- Letter selection & X-offset panel -->
+        <div id="letter-panel">
+          <div class="letter-panel-label">Buchstabe wählen</div>
+          <div id="letter-buttons"></div>
+        </div>
+        <div id="move-controls">
+          <div class="move-label">
+            X-Position: <span id="selected-letter-name">–</span>
+          </div>
+          <div id="move-btn-row">
+            <button class="btn-move" data-delta="-1">−1</button>
+            <button class="btn-move" data-delta="-0.1">−0.1</button>
+            <button class="btn-move" data-delta="0.1">+0.1</button>
+            <button class="btn-move" data-delta="1">+1</button>
+          </div>
+          <div id="offset-display">Versatz: <span id="offset-val">0.0</span> mm</div>
+          <button id="reset-offset-btn">↺ ZURÜCKSETZEN</button>
+        </div>
+
+        <div class="divider"></div>
+
         <div class="ctrl">
           <div class="ctrl-label">Farbe &amp; Stil</div>
           <div class="ctrl-row">
@@ -490,7 +634,6 @@
       <div class="sidebar-footer">
         <div id="dims-display">–</div>
         <button class="btn btn-front" id="front-btn">⊡ FRONTANSICHT</button>
-        <button class="btn btn-render" id="render-btn">▶ RENDER</button>
         <button class="btn btn-download" id="download-btn" disabled>
           ↓ OBJ EXPORT
         </button>
@@ -110695,10 +110838,28 @@
         combinedGeo.computeBoundingBox();
         combinedGeo.computeVertexNormals();
 
-        const mesh = new THREE.Mesh(combinedGeo, mat);
-        mesh.castShadow = true;
         const group = new THREE.Group();
-        group.add(mesh);
+
+        // Create individual letter meshes for selection
+        const letterMeshes = [];
+        for (let li = 0; li < letterGeos.length; li++) {
+          const { char, geo: lg } = letterGeos[li];
+          lg.computeBoundingBox();
+          lg.computeVertexNormals();
+          const lMat = mat.clone();
+          const lMesh = new THREE.Mesh(lg, lMat);
+          lMesh.castShadow = true;
+          lMesh.userData.letterIndex = li;
+          lMesh.userData.char = char;
+          lMesh.userData.xOffset = 0;
+          group.add(lMesh);
+          letterMeshes.push(lMesh);
+        }
+
+        // Clip mesh (non-selectable)
+        const clipMesh = new THREE.Mesh(clipGeo, mat.clone());
+        clipMesh.userData.isClip = true;
+        group.add(clipMesh);
 
         // For EXPORT: keep each letter and clip as SEPARATE geometries.
         // Exporting as separate OBJ objects lets the slicer treat them as individual
@@ -110706,6 +110867,7 @@
         group.userData.geo = merged; // full text merged (for bounding box / dims)
         group.userData.letterGeos = letterGeos; // [{char, geo}, ...] — one per letter
         group.userData.clipGeo = clipGeo; // clip as its own object
+        group.userData.letterMeshes = letterMeshes; // individual THREE.Mesh per letter
         group.userData.text = text;
         return group;
       }
@@ -110758,6 +110920,10 @@
               document.getElementById("download-btn").disabled = false;
               setStatus("BEREIT", "ready");
               updateDims();
+              // Rebuild letter selection buttons
+              selectedLetterIndex = -1;
+              document.getElementById("move-controls").classList.remove("visible");
+              buildLetterButtons();
               // Auto-fit only on first render (or when RENDER button clicked explicitly)
               if (fitOnNextRender) {
                 fitCamera(textGroup.userData.geo);
@@ -110978,6 +111144,153 @@
       document.getElementById("text-input").addEventListener("keydown", (e) => {
         if (e.key === "Enter") renderText();
       });
+
+      // ── Letter Selection & X-Offset System ───────────────────────────────────────
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+      let selectedLetterIndex = -1;
+      let mouseDownX = 0, mouseDownY = 0;
+
+      // Highlight / deselect materials
+      const HIGHLIGHT_COLOR = 0xff3c6e;
+      const SELECTED_EMISSIVE = 0x441100;
+
+      function getLetterMeshes() {
+        return textGroup?.userData?.letterMeshes || [];
+      }
+
+      function selectLetter(index) {
+        const meshes = getLetterMeshes();
+        const baseColor = new THREE.Color(document.getElementById("color").value);
+        // Deselect previous
+        meshes.forEach((m) => {
+          m.material.color.set(baseColor);
+          if (m.material.emissive) {
+            m.material.emissive.set(0x000000);
+            m.material.emissiveIntensity = 0;
+          }
+        });
+        document.querySelectorAll(".letter-sel-btn").forEach(b => b.classList.remove("active"));
+
+        if (index < 0 || index >= meshes.length) {
+          selectedLetterIndex = -1;
+          document.getElementById("move-controls").classList.remove("visible");
+          document.getElementById("selected-letter-name").textContent = "–";
+          return;
+        }
+
+        selectedLetterIndex = index;
+        const mesh = meshes[index];
+        // Highlight: tint color toward accent pink; use emissive if available
+        mesh.material.color.set(new THREE.Color(HIGHLIGHT_COLOR));
+        if (mesh.material.emissive) {
+          mesh.material.emissive.set(new THREE.Color(0x330011));
+          mesh.material.emissiveIntensity = 1;
+        }
+        const char = mesh.userData.char;
+        document.getElementById("selected-letter-name").textContent = `"${char}" (#${index + 1})`;
+        document.getElementById("offset-val").textContent = mesh.userData.xOffset.toFixed(1);
+        document.getElementById("move-controls").classList.add("visible");
+        const btn = document.querySelector(`.letter-sel-btn[data-index="${index}"]`);
+        if (btn) btn.classList.add("active");
+      }
+
+      function moveSelectedLetter(deltaMm) {
+        if (selectedLetterIndex < 0) return;
+        const meshes = getLetterMeshes();
+        const mesh = meshes[selectedLetterIndex];
+        if (!mesh) return;
+        mesh.position.x += deltaMm;
+        mesh.userData.xOffset += deltaMm;
+        document.getElementById("offset-val").textContent = mesh.userData.xOffset.toFixed(1);
+        // Also shift the geometry in letterGeos so OBJ export is correct
+        const letterGeo = textGroup.userData.letterGeos?.[selectedLetterIndex]?.geo;
+        if (letterGeo) {
+          const pos = letterGeo.attributes.position.array;
+          for (let i = 0; i < pos.length; i += 3) pos[i] += deltaMm;
+          letterGeo.attributes.position.needsUpdate = true;
+        }
+      }
+
+      function resetSelectedOffset() {
+        if (selectedLetterIndex < 0) return;
+        const meshes = getLetterMeshes();
+        const mesh = meshes[selectedLetterIndex];
+        if (!mesh) return;
+        const delta = -mesh.userData.xOffset;
+        moveSelectedLetter(delta);
+      }
+
+      function buildLetterButtons() {
+        const container = document.getElementById("letter-buttons");
+        container.innerHTML = "";
+        const meshes = getLetterMeshes();
+        if (meshes.length === 0) {
+          document.getElementById("letter-panel").classList.remove("visible");
+          return;
+        }
+        document.getElementById("letter-panel").classList.add("visible");
+        meshes.forEach((m, i) => {
+          const btn = document.createElement("button");
+          btn.className = "letter-sel-btn";
+          btn.dataset.index = i;
+          btn.title = `Buchstabe "${m.userData.char}" (${i + 1})`;
+          btn.textContent = m.userData.char === " " ? "·" : m.userData.char;
+          btn.addEventListener("click", () => {
+            if (selectedLetterIndex === i) {
+              selectLetter(-1); // deselect on second click
+            } else {
+              selectLetter(i);
+            }
+          });
+          container.appendChild(btn);
+        });
+      }
+
+      // Click on canvas to select letter via raycasting
+      el.addEventListener("mousedown", (e) => {
+        mouseDownX = e.clientX;
+        mouseDownY = e.clientY;
+      });
+
+      el.addEventListener("click", (e) => {
+        // Only treat as a click if mouse didn't move much (not a drag)
+        if (Math.abs(e.clientX - mouseDownX) > 5 || Math.abs(e.clientY - mouseDownY) > 5) return;
+        if (!textGroup) return;
+
+        const rect = el.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const meshes = getLetterMeshes();
+        const intersects = raycaster.intersectObjects(meshes, false);
+
+        if (intersects.length > 0) {
+          const hitMesh = intersects[0].object;
+          const idx = hitMesh.userData.letterIndex;
+          if (selectedLetterIndex === idx) {
+            selectLetter(-1);
+          } else {
+            selectLetter(idx);
+          }
+        } else {
+          selectLetter(-1);
+        }
+      });
+
+      // Move buttons
+      document.querySelectorAll(".btn-move").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const delta = parseFloat(btn.dataset.delta);
+          moveSelectedLetter(delta);
+        });
+      });
+
+      document.getElementById("reset-offset-btn").addEventListener("click", resetSelectedOffset);
+
+      // Hook into renderText to rebuild letter buttons afterward
+      // (handled directly in renderText after scene.add(textGroup))
 
       // ── Animate ───────────────────────────────────────────────────────────────────
       let t = 0;

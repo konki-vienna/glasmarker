@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Glasmarker - Diagnose</title>
+    <style>
+      body {
+        font-family: monospace;
+        background: #0a0a0f;
+        color: #ffcc00;
+        padding: 20px;
+        margin: 0;
+      }
+      .log {
+        background: #12121a;
+        border: 1px solid #222;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 4px;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+      .ok {
+        color: #00ff00;
+      }
+      .error {
+        color: #ff3366;
+      }
+      .info {
+        color: #ffcc00;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      #canvas {
+        border: 1px solid #555;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Glasmarker Diagnose</h1>
+
+    <div id="log" class="log">
+      <div class="info">Laden...</div>
+    </div>
+
+    <h2>Three.js Test</h2>
+    <canvas id="canvas" width="400" height="300"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+      const log = document.getElementById("log");
+
+      function addLog(msg, type = "info") {
+        const div = document.createElement("div");
+        div.className = type;
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        log.appendChild(div);
+        log.scrollTop = log.scrollHeight;
+        console.log(msg);
+      }
+
+      // Test 1: Check Three.js
+      addLog(`✓ Three.js Version: ${THREE.REVISION}`, "ok");
+
+      // Test 2: Check WebGL support
+      try {
+        const canvas = document.getElementById("canvas");
+        const gl =
+          canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+        if (gl) {
+          addLog(
+            `✓ WebGL unterstützt (Renderer: ${gl.getParameter(gl.VENDOR)})`,
+            "ok",
+          );
+        } else {
+          addLog("✗ WebGL nicht unterstützt", "error");
+        }
+      } catch (e) {
+        addLog(`✗ WebGL Check Fehler: ${e.message}`, "error");
+      }
+
+      // Test 3: Simple Three.js Scene
+      try {
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, 400 / 300, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({
+          canvas: document.getElementById("canvas"),
+          antialias: true,
+        });
+        renderer.setSize(400, 300);
+        renderer.setClearColor(0x12121a);
+
+        // Add a simple cube
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshPhongMaterial({ color: 0xffcc00 });
+        const cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
+
+        // Add light
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(5, 5, 5);
+        scene.add(light);
+
+        camera.position.z = 3;
+        renderer.render(scene, camera);
+
+        addLog("✓ Einfacher Cube erfolgreich gerendert", "ok");
+      } catch (e) {
+        addLog(`✗ Three.js Rendering Fehler: ${e.message}`, "error");
+        console.error(e);
+      }
+
+      // Test 4: Check index.html ALL_FONTS
+      addLog("Lade index.html zur Überprüfung...", "info");
+      fetch("index.html")
+        .then((r) => r.text())
+        .then((html) => {
+          const has_all_fonts = html.includes("const ALL_FONTS");
+          const has_yesteryear = html.includes('"Yesteryear"');
+          const has_lobster = html.includes('"Lobster"');
+
+          addLog(`✓ index.html geladen (${html.length} bytes)`, "ok");
+          addLog(
+            `  ${has_all_fonts ? "✓" : "✗"} ALL_FONTS definiert`,
+            has_all_fonts ? "ok" : "error",
+          );
+          addLog(
+            `  ${has_lobster ? "✓" : "✗"} Lobster Font vorhanden`,
+            has_lobster ? "ok" : "error",
+          );
+          addLog(
+            `  ${has_yesteryear ? "✓" : "✗"} Yesteryear Font vorhanden`,
+            has_yesteryear ? "ok" : "error",
+          );
+        })
+        .catch((e) => {
+          addLog(`✗ index.html Fehler: ${e.message}`, "error");
+        });
+
+      addLog("Diagnose abgeschlossen", "ok");
+    </script>
+  </body>
+</html>

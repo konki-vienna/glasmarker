@@ -367913,9 +367913,6 @@
         );
         const flanschEnabled =
           document.getElementById("flansch-enabled").checked;
-        const flanschLenMm = parseFloat(
-          document.getElementById("flansch-len").value,
-        );
         // Default flansch length = text width
         merged.computeBoundingBox();
         const textWidthMm = merged.boundingBox.max.x - merged.boundingBox.min.x;
@@ -367930,6 +367927,7 @@
           document.getElementById("val-flansch-len").textContent =
             textWidthMm.toFixed(1) + " mm";
         }
+        // READ flanschActual AFTER slider value may have been updated
         const flanschActual = flanschEnabled
           ? parseFloat(flanschSlider.value)
           : 0;

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Flansch Export Bug</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .test-section { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+    button { padding: 8px 12px; margin: 5px; cursor: pointer; }
+    pre { background: #f0f0f0; padding: 10px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Flansch Export Debug Test</h1>
+  
+  <div class="test-section">
+    <h2>1. Schritt: Öffne die normale App</h2>
+    <p>Öffne <strong>index.html</strong> im Browser</p>
+  </div>
+
+  <div class="test-section">
+    <h2>2. Schritt: Teste Flansch-Änderung</h2>
+    <ol>
+      <li>Gebe Text ein: "ABC"</li>
+      <li>Aktiviere Flansch-Checkbox</li>
+      <li>Stelle Flansch-Länge auf z.B. <strong>50 mm</strong></li>
+      <li>Öffne Browser DevTools (F12) → Konsole</li>
+      <li>Führe folgende Code-Zeile aus:</li>
+    </ol>
+    <pre>console.log("Flansch-Länge in UI:", document.getElementById("flansch-len").value);
+console.log("Flansch enabled:", document.getElementById("flansch-enabled").checked);
+console.log("Clip Geo vertices count:", textGroup?.userData?.clipGeo?.attributes?.position?.count);</pre>
+  </div>
+
+  <div class="test-section">
+    <h2>3. Schritt: Überprüfe exportierte OBJ</h2>
+    <ol>
+      <li>Klicke "Download OBJ"</li>
+      <li>Öffne die heruntergeladene .obj Datei in einem Text-Editor</li>
+      <li>Suche nach "o Clip" (der Flansch ist Teil des Clips)</li>
+      <li>Überprüfe die Koordinaten - die Flansch sollte von x₁ bis x₂ gehen</li>
+      <li>Berechne die Länge: x₂ - x₁ sollte ≈ 50 mm sein</li>
+    </ol>
+  </div>
+
+  <div class="test-section">
+    <h2>Ausführlicher Debug-Code</h2>
+    <p>Kopiere diese Zeilen in die Konsole, um mehr Details zu sehen:</p>
+    <pre>
+// Zeige Clip-Geo-Bounds
+const clipGeo = textGroup?.userData?.clipGeo;
+if (clipGeo) {
+  clipGeo.computeBoundingBox();
+  const bb = clipGeo.boundingBox;
+  console.log("Clip Bounding Box:", bb);
+  console.log("Clip width (X):", (bb.max.x - bb.min.x).toFixed(2), "mm");
+  console.log("Flansch length sollte sein:", document.getElementById("flansch-len").value, "mm");
+}
+
+// Zeige alle Vertices des Clips
+if (clipGeo?.attributes?.position) {
+  const pos = clipGeo.attributes.position;
+  console.log("Clip hat", pos.count, "Vertices");
+  // Min/Max X-Koordinaten
+  let minX = Infinity, maxX = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+  }
+  console.log("Min X:", minX.toFixed(2), "Max X:", maxX.toFixed(2));
+  console.log("Clip width:", (maxX - minX).toFixed(2), "mm");
+}
+    </pre>
+  </div>
+
+  <div class="test-section">
+    <h2>Verdacht-Punkte</h2>
+    <ul>
+      <li>✓ <strong>Fix angewendet:</strong> Flansch-Länge wird jetzt NACH Slider-Update gelesen</li>
+      <li>? <strong>Zu prüfen:</strong> Wird die clipGeo wirklich neu erstellt bei Flansch-Änderung?</li>
+      <li>? <strong>Zu prüfen:</strong> Wird die neue clipGeo in userData.clipGeo gespeichert?</li>
+      <li>? <strong>Race condition?</strong> setTimeout könnte Export mit alter clipGeo erlauben</li>
+    </ul>
+  </div>
+
+</body>
+</html>
